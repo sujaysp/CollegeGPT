@@ -1,0 +1,1285 @@
+﻿import { useEffect, useRef, useState } from "react";
+import Head from "next/head";
+import { useRouter } from "next/router";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import styles from "../styles/Home.module.css";
+
+export default function Home() {
+  const router = useRouter();
+  const messagesEndRef = useRef(null);
+
+  const [user, setUser] = useState(null);
+  const [message, setMessage] = useState("");
+  const [activeChat, setActiveChat] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
+
+  const [loading, setLoading] = useState(false);
+  const [loadingConversations, setLoadingConversations] =
+    useState(true);
+  const [loadingConversation, setLoadingConversation] =
+    useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem("collegegpt_token");
+    const storedUser = localStorage.getItem("collegegpt_user");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error("User data error:", error);
+        localStorage.removeItem("collegegpt_user");
+      }
+    }
+
+    loadConversations(token);
+  }, [router]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages, loading]);
+
+  const loadConversations = async (token) => {
+    try {
+      setLoadingConversations(true);
+
+      const response = await fetch(
+        "http://localhost:5000/api/conversations",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Conversation API returned non-JSON:",
+          responseText
+        );
+        throw new Error(
+          `Unable to load conversations (${response.status})`
+        );
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("collegegpt_token");
+        localStorage.removeItem("collegegpt_user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to load conversations"
+        );
+      }
+
+      setConversations(data.conversations || []);
+    } catch (error) {
+      console.error(
+        "Conversation loading error:",
+        error
+      );
+    } finally {
+      setLoadingConversations(false);
+    }
+  };
+
+  const openConversation = async (conversation) => {
+    const token = localStorage.getItem("collegegpt_token");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    try {
+      setLoadingConversation(true);
+
+      const response = await fetch(
+        `http://localhost:5000/api/conversations/${conversation._id}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Conversation API returned non-JSON:",
+          responseText
+        );
+
+        throw new Error(
+          `Unable to load conversation (${response.status})`
+        );
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("collegegpt_token");
+        localStorage.removeItem("collegegpt_user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to load conversation"
+        );
+      }
+
+      setConversationId(data.conversation._id);
+      setActiveChat(data.conversation.title);
+      setMessages(data.conversation.messages || []);
+      setMessage("");
+    } catch (error) {
+      console.error(
+        "Open conversation error:",
+        error
+      );
+
+      window.alert(
+        error.message ||
+          "Unable to open conversation"
+      );
+    } finally {
+      setLoadingConversation(false);
+    }
+  };
+
+  const startNewChat = () => {
+    setActiveChat(null);
+    setConversationId(null);
+    setMessages([]);
+    setMessage("");
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("collegegpt_token");
+    localStorage.removeItem("collegegpt_user");
+
+    router.push("/login");
+  };
+
+  const handleSuggestion = (text) => {
+    setMessage(text);
+  };
+
+  const renameConversation = async (conversation) => {
+    const newTitle = window.prompt(
+      "Enter a new conversation title:",
+      conversation.title
+    );
+
+    if (!newTitle || !newTitle.trim()) {
+      return;
+    }
+
+    const token = localStorage.getItem("collegegpt_token");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/conversations/${conversation._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: newTitle.trim(),
+          }),
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Rename API returned non-JSON:",
+          responseText
+        );
+
+        throw new Error(
+          `Unable to rename conversation (${response.status})`
+        );
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("collegegpt_token");
+        localStorage.removeItem("collegegpt_user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to rename conversation"
+        );
+      }
+
+      setConversations((previous) =>
+        previous.map((item) =>
+          item._id === conversation._id
+            ? {
+                ...item,
+                title: data.conversation.title,
+                updatedAt:
+                  data.conversation.updatedAt,
+              }
+            : item
+        )
+      );
+
+      if (conversationId === conversation._id) {
+        setActiveChat(data.conversation.title);
+      }
+    } catch (error) {
+      console.error("Rename error:", error);
+
+      window.alert(
+        error.message ||
+          "Unable to rename conversation"
+      );
+    }
+  };
+
+  const deleteConversation = async (conversation) => {
+    const confirmed = window.confirm(
+      `Delete "${conversation.title}"?\n\nThis cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("collegegpt_token");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/conversations/${conversation._id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Delete API returned non-JSON:",
+          responseText
+        );
+
+        throw new Error(
+          `Unable to delete conversation (${response.status})`
+        );
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("collegegpt_token");
+        localStorage.removeItem("collegegpt_user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to delete conversation"
+        );
+      }
+
+      setConversations((previous) =>
+        previous.filter(
+          (item) =>
+            item._id !== conversation._id
+        )
+      );
+
+      if (conversationId === conversation._id) {
+        startNewChat();
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+
+      window.alert(
+        error.message ||
+          "Unable to delete conversation"
+      );
+    }
+  };
+
+  const sendMessage = async (event) => {
+    event.preventDefault();
+
+    const trimmedMessage = message.trim();
+
+    if (!trimmedMessage || loading) {
+      return;
+    }
+
+    const token = localStorage.getItem("collegegpt_token");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    const userMessage = {
+      role: "user",
+      content: trimmedMessage,
+    };
+
+    setMessages((previous) => [
+      ...previous,
+      userMessage,
+    ]);
+
+    setMessage("");
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        "http://localhost:5000/api/chat/message",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            message: trimmedMessage,
+            conversationId,
+          }),
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Chat API returned non-JSON:",
+          responseText
+        );
+
+        throw new Error(
+          `Backend returned an invalid response (${response.status})`
+        );
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("collegegpt_token");
+        localStorage.removeItem("collegegpt_user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to send your message"
+        );
+      }
+
+      if (data.conversationId) {
+        setConversationId(
+          data.conversationId
+        );
+      }
+
+      if (data.title) {
+        setActiveChat(data.title);
+      } else if (!activeChat) {
+        setActiveChat(trimmedMessage);
+      }
+
+      if (data.reply) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            role: "assistant",
+            content: data.reply,
+          },
+        ]);
+      }
+
+      await loadConversations(token);
+    } catch (error) {
+      console.error("Chat error:", error);
+
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: "assistant",
+          content:
+            error.message ||
+            "Something went wrong. Please try again.",
+          error: true,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className={styles.loadingScreen}>
+        <div className={styles.loadingOrb}></div>
+
+        <p>
+          Preparing your campus workspace...
+        </p>
+      </div>
+    );
+  }
+
+  const firstName = user.name
+    ? user.name.split(" ")[0]
+    : "Student";
+
+  return (
+    <>
+      <Head>
+        <title>
+          {activeChat
+            ? `${activeChat} | CollegeGPT`
+            : "CollegeGPT | Your Campus AI"}
+        </title>
+
+        <meta
+          name="description"
+          content="Your intelligent campus assistant"
+        />
+      </Head>
+
+      <main className={styles.page}>
+        <div className={styles.background}>
+          <div
+            className={`${styles.glow} ${styles.glowOne}`}
+          ></div>
+
+          <div
+            className={`${styles.glow} ${styles.glowTwo}`}
+          ></div>
+
+          <div
+            className={`${styles.glow} ${styles.glowThree}`}
+          ></div>
+
+          <div className={styles.grid}></div>
+        </div>
+
+        <aside
+          className={`${styles.sidebar} ${
+            sidebarOpen
+              ? styles.sidebarOpen
+              : styles.sidebarClosed
+          }`}
+        >
+          <div className={styles.sidebarTop}>
+            <div className={styles.brand}>
+              <div className={styles.brandIcon}>
+                âœ¦
+              </div>
+
+              {sidebarOpen && (
+                <span>CollegeGPT</span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={
+                styles.collapseButton
+              }
+              onClick={() =>
+                setSidebarOpen(
+                  (previous) => !previous
+                )
+              }
+            >
+              {sidebarOpen ? "â€¹" : "â€º"}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className={styles.newChat}
+            onClick={startNewChat}
+          >
+            <span
+              className={styles.newChatIcon}
+            >
+              +
+            </span>
+
+            {sidebarOpen && (
+              <span>New chat</span>
+            )}
+          </button>
+
+          {sidebarOpen && (
+            <div
+              className={
+                styles.sidebarSection
+              }
+            >
+              <p
+                className={
+                  styles.sectionLabel
+                }
+              >
+                RECENT
+              </p>
+
+              {loadingConversations ? (
+                <div
+                  className={styles.chatItem}
+                >
+                  <span>â—Œ</span>
+                  <span>
+                    Loading conversations...
+                  </span>
+                </div>
+              ) : conversations.length ===
+                0 ? (
+                <div
+                  className={styles.chatItem}
+                >
+                  <span>â—Œ</span>
+                  <span>
+                    No conversations yet
+                  </span>
+                </div>
+              ) : (
+                conversations.map(
+                  (conversation) => (
+                    <div
+                      key={
+                        conversation._id
+                      }
+                      className={`${styles.chatItemWrapper} ${
+                        conversationId ===
+                        conversation._id
+                          ? styles.activeChatItemWrapper
+                          : ""
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`${styles.chatItem} ${
+                          conversationId ===
+                          conversation._id
+                            ? styles.activeChatItem
+                            : ""
+                        }`}
+                        onClick={() =>
+                          openConversation(
+                            conversation
+                          )
+                        }
+                        disabled={
+                          loadingConversation
+                        }
+                      >
+                        <span>â—Œ</span>
+
+                        <span
+                          className={
+                            styles.chatItemTitle
+                          }
+                        >
+                          {
+                            conversation.title
+                          }
+                        </span>
+                      </button>
+
+                      <div
+                        className={
+                          styles.chatActions
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={
+                            styles.chatActionButton
+                          }
+                          onClick={() =>
+                            renameConversation(
+                              conversation
+                            )
+                          }
+                          title="Rename conversation"
+                          aria-label="Rename conversation"
+                        >
+                          âœŽ
+                        </button>
+
+                        <button
+                          type="button"
+                          className={
+                            styles.chatActionButton
+                          }
+                          onClick={() =>
+                            deleteConversation(
+                              conversation
+                            )
+                          }
+                          title="Delete conversation"
+                          aria-label="Delete conversation"
+                        >
+                          Ã—
+                        </button>
+                      </div>
+                    </div>
+                  )
+                )
+              )}
+            </div>
+          )}
+
+          <div
+            className={styles.sidebarBottom}
+          >
+            <button
+              type="button"
+              className={
+                styles.sidebarAction
+              }
+            >
+              <span>âš™</span>
+
+              {sidebarOpen && (
+                <span>Settings</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`${styles.sidebarAction} ${styles.logout}`}
+              onClick={handleLogout}
+            >
+              <span>â†ª</span>
+
+              {sidebarOpen && (
+                <span>Log out</span>
+              )}
+            </button>
+          </div>
+        </aside>
+
+        <section
+          className={styles.workspace}
+        >
+          <header
+            className={styles.topbar}
+          >
+            <div
+              className={
+                styles.mobileBrand
+              }
+            >
+              <div
+                className={
+                  styles.brandIcon
+                }
+              >
+                âœ¦
+              </div>
+
+              <span>CollegeGPT</span>
+            </div>
+
+            <div
+              className={
+                styles.topbarRight
+              }
+            >
+              <button
+                type="button"
+                className={
+                  styles.iconButton
+                }
+              >
+                â—‡
+              </button>
+
+              <div
+                className={
+                  styles.userProfile
+                }
+              >
+                <div
+                  className={styles.avatar}
+                >
+                  {firstName
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+
+                <div
+                  className={
+                    styles.userInfo
+                  }
+                >
+                  <strong>
+                    {firstName}
+                  </strong>
+
+                  <span>
+                    Student
+                  </span>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <div
+            className={styles.content}
+          >
+            {loadingConversation ? (
+              <div
+                className={
+                  styles.loadingScreen
+                }
+              >
+                <div
+                  className={
+                    styles.loadingOrb
+                  }
+                ></div>
+
+                <p>
+                  Loading conversation...
+                </p>
+              </div>
+            ) : !activeChat ? (
+              <div
+                className={
+                  styles.welcomeArea
+                }
+              >
+                <div
+                  className={
+                    styles.welcomeBadge
+                  }
+                >
+                  <span
+                    className={
+                      styles.statusDot
+                    }
+                  ></span>
+
+                  CAMPUS AI ONLINE
+                </div>
+
+                <h1
+                  className={
+                    styles.welcomeTitle
+                  }
+                >
+                  Good to see you,
+
+                  <span>
+                    {firstName}.
+                  </span>
+                </h1>
+
+                <p
+                  className={
+                    styles.welcomeSubtitle
+                  }
+                >
+                  Your campus knowledge is
+                  one conversation away.
+                </p>
+
+                <div
+                  className={
+                    styles.suggestions
+                  }
+                >
+                  <button
+                    type="button"
+                    className={
+                      styles.suggestionCard
+                    }
+                    onClick={() =>
+                      handleSuggestion(
+                        "Help me prepare for my upcoming exams"
+                      )
+                    }
+                  >
+                    <span
+                      className={
+                        styles.suggestionIcon
+                      }
+                    >
+                      â—ˆ
+                    </span>
+
+                    <span>
+                      <strong>
+                        Exam prep
+                      </strong>
+
+                      <small>
+                        Build a personalized
+                        study plan
+                      </small>
+                    </span>
+
+                    <span
+                      className={
+                        styles.cardArrow
+                      }
+                    >
+                      â†—
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.suggestionCard
+                    }
+                    onClick={() =>
+                      handleSuggestion(
+                        "Help me understand an important concept"
+                      )
+                    }
+                  >
+                    <span
+                      className={
+                        styles.suggestionIcon
+                      }
+                    >
+                      â—Ž
+                    </span>
+
+                    <span>
+                      <strong>
+                        Learn something
+                      </strong>
+
+                      <small>
+                        Break down difficult
+                        concepts
+                      </small>
+                    </span>
+
+                    <span
+                      className={
+                        styles.cardArrow
+                      }
+                    >
+                      â†—
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.suggestionCard
+                    }
+                    onClick={() =>
+                      handleSuggestion(
+                        "Help me with my assignment"
+                      )
+                    }
+                  >
+                    <span
+                      className={
+                        styles.suggestionIcon
+                      }
+                    >
+                      â—«
+                    </span>
+
+                    <span>
+                      <strong>
+                        Assignment help
+                      </strong>
+
+                      <small>
+                        Work through your
+                        coursework
+                      </small>
+                    </span>
+
+                    <span
+                      className={
+                        styles.cardArrow
+                      }
+                    >
+                      â†—
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      styles.suggestionCard
+                    }
+                    onClick={() =>
+                      handleSuggestion(
+                        "What resources are available on campus?"
+                      )
+                    }
+                  >
+                    <span
+                      className={
+                        styles.suggestionIcon
+                      }
+                    >
+                      âŒ˜
+                    </span>
+
+                    <span>
+                      <strong>
+                        Campus help
+                      </strong>
+
+                      <small>
+                        Find useful campus
+                        information
+                      </small>
+                    </span>
+
+                    <span
+                      className={
+                        styles.cardArrow
+                      }
+                    >
+                      â†—
+                    </span>
+                  </button>
+                </div>
+
+                <form
+                  className={
+                    styles.chatForm
+                  }
+                  onSubmit={sendMessage}
+                >
+                  <div
+                    className={
+                      styles.chatInputWrapper
+                    }
+                  >
+                    <textarea
+                      value={message}
+                      onChange={(event) =>
+                        setMessage(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Ask CollegeGPT anything..."
+                      rows={1}
+                    />
+
+                    <button
+                      type="submit"
+                      className={
+                        styles.sendButton
+                      }
+                      disabled={
+                        !message.trim()
+                      }
+                    >
+                      â†‘
+                    </button>
+                  </div>
+
+                  <div
+                    className={
+                      styles.inputHint
+                    }
+                  >
+                    <span>
+                      CollegeGPT can help
+                      with studying,
+                      assignments and
+                      campus questions.
+                    </span>
+
+                    <span>
+                      Enter â†µ
+                    </span>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <div
+                className={
+                  styles.chatArea
+                }
+              >
+                <div
+                  className={
+                    styles.chatHeader
+                  }
+                >
+                  <button
+                    type="button"
+                    className={
+                      styles.backButton
+                    }
+                    onClick={startNewChat}
+                  >
+                    â†
+                  </button>
+
+                  <div>
+                    <span>
+                      CONVERSATION
+                    </span>
+
+                    <h2>
+                      {activeChat}
+                    </h2>
+                  </div>
+                </div>
+
+                <div
+                  className={
+                    styles.messageList
+                  }
+                >
+                  {messages.map(
+                    (item, index) => (
+                      <div
+                        key={`${conversationId}-${index}`}
+                        className={`${styles.messageRow} ${
+                          item.role ===
+                          "user"
+                            ? styles.userMessageRow
+                            : styles.aiMessageRow
+                        }`}
+                      >
+                        {item.role ===
+                          "assistant" && (
+                          <div
+                            className={
+                              styles.messageAvatar
+                            }
+                          >
+                            âœ¦
+                          </div>
+                        )}
+
+                        <div
+                          className={`${styles.messageBubble} ${
+                            item.role ===
+                            "user"
+                              ? styles.userBubble
+                              : styles.aiBubble
+                          } ${
+                            item.error
+                              ? styles.errorBubble
+                              : ""
+                          }`}
+                        >
+                          <div
+                            className={
+                              styles.messageRole
+                            }
+                          >
+                            {item.role ===
+                            "user"
+                              ? "YOU"
+                              : "COLLEGEGPT"}
+                          </div>
+
+                          <div
+                            className={
+                              styles.messageContent
+                            }
+                          >
+                            {item.role ===
+                            "assistant" ? (
+                              <ReactMarkdown
+                                remarkPlugins={[
+                                  remarkGfm,
+                                ]}
+                              >
+                                {
+                                  item.content
+                                }
+                              </ReactMarkdown>
+                            ) : (
+                              item.content
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {loading && (
+                    <div
+                      className={`${styles.messageRow} ${styles.aiMessageRow}`}
+                    >
+                      <div
+                        className={
+                          styles.messageAvatar
+                        }
+                      >
+                        âœ¦
+                      </div>
+
+                      <div
+                        className={`${styles.messageBubble} ${styles.aiBubble}`}
+                      >
+                        <div
+                          className={
+                            styles.messageRole
+                          }
+                        >
+                          COLLEGEGPT
+                        </div>
+
+                        <div
+                          className={
+                            styles.typingIndicator
+                          }
+                        >
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    ref={messagesEndRef}
+                  ></div>
+                </div>
+
+                <form
+                  className={
+                    styles.chatFormBottom
+                  }
+                  onSubmit={sendMessage}
+                >
+                  <div
+                    className={
+                      styles.chatInputWrapper
+                    }
+                  >
+                    <textarea
+                      value={message}
+                      onChange={(event) =>
+                        setMessage(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Continue the conversation..."
+                      rows={1}
+                      disabled={loading}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key ===
+                            "Enter" &&
+                          !event.shiftKey
+                        ) {
+                          event.preventDefault();
+                          sendMessage(
+                            event
+                          );
+                        }
+                      }}
+                    />
+
+                    <button
+                      type="submit"
+                      className={
+                        styles.sendButton
+                      }
+                      disabled={
+                        !message.trim() ||
+                        loading
+                      }
+                    >
+                      {loading ? "â€¦" : "â†‘"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+
+          <footer
+            className={styles.footer}
+          >
+            <span>
+              CollegeGPT
+            </span>
+
+            <span>
+              Built for your campus.
+            </span>
+          </footer>
+        </section>
+      </main>
+    </>
+  );
+}
