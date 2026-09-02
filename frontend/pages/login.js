@@ -7,7 +7,10 @@ import { GoogleLogin } from "@react-oauth/google";
 import styles from "../styles/Login.module.css";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost"
+    ? "https://collegegpt-backend-xurq.onrender.com"
+    : "http://localhost:5000";
 
 export default function Login() {
   const router = useRouter();
