@@ -15,13 +15,29 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://collegegpt-ai.vercel.app",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-    ],
+    origin: function (origin, callback) {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("CORS blocked origin:", origin);
+      return callback(null, false);
+    },
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
@@ -45,12 +61,6 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| API ROUTES
-|--------------------------------------------------------------------------
-*/
-
 app.use("/api/auth", authRoutes);
 
 app.use("/api/conversations", conversationRoutes);
@@ -58,12 +68,6 @@ app.use("/api/conversations", conversationRoutes);
 app.use("/api/documents", documentRoutes);
 
 app.use("/api/chat", chatRoutes);
-
-/*
-|--------------------------------------------------------------------------
-| 404 API HANDLER
-|--------------------------------------------------------------------------
-*/
 
 app.use((req, res) => {
   console.log("404:", req.method, req.originalUrl);
@@ -74,12 +78,6 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
-
-/*
-|--------------------------------------------------------------------------
-| GLOBAL ERROR HANDLER
-|--------------------------------------------------------------------------
-*/
 
 app.use((err, req, res, next) => {
   console.error("Unhandled server error:", err);
@@ -115,12 +113,6 @@ app.use((err, req, res, next) => {
         : undefined,
   });
 });
-
-/*
-|--------------------------------------------------------------------------
-| START SERVER
-|--------------------------------------------------------------------------
-*/
 
 const startServer = async () => {
   try {
